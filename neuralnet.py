@@ -1,72 +1,34 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from sklearn.datasets import load_iris
+from typing import List, Tuple, Callable, Any
+
+iris = load_iris()
+X = np.array(iris.data)
+y = np.array(iris.target)
 
 # Research Dropouts
 # Find how to implement regularization
-class Backpropagation:
-    pass
 
-class ReluActivation:
-    def __init__(self, inputs):
+class Layer:
+    def __init__(self, input_size: int, output_size: int):
+        self.weights = np.random.randn(input_size, output_size) * np.sqrt(2.0 / input_size)
+        self.biases = np.zeroes((1, output_size))
+
+    def forward(self, inputs):
         self.inputs = inputs
-        self.output = None
+        self.output = inputs @ self.weights + self.biases
 
-    def forward(self):
-        self.output = np.maximum(0, self.inputs)
+        return self.output
+    
+    def backward(self, grad_output):
+        self.grad_weights = self.inputs.T @ grad_output
+        self.grad_biases = np.sum(grad_output, axis=0, keepdims=True)
+        grad_input = np.dot(grad_output, self.weights.T)
 
-class SigmoidActivation:
-    def __init__(self, inputs):
-        self.inputs = inputs
-        self.output = None
+        return grad_input
 
-    def forward(self):
-        self.output = 1 / (1 + np.exp(-self.inputs))
-
-class Node:
-    def __init__(self):
-        self.inbound_nodes = []
-        self.outbound_nodes = []
-        self.value = None 
-
-        self.activate = ReluActivation(self.value)
-
-    def forward(self):
-        total_input = sum([node.value for node in self.inbound_nodes])
-        self.value = total_input
-        self.activate.inputs = self.value
-        self.activate.forward()
-        self.value = self.activate.output
-
-class Edge:
-    def __init__(self, inbound_node, outbound_node):
-        self.inbound_node = inbound_node
-        self.outbound_node = outbound_node
-        inbound_node.outbound_nodes.append(outbound_node)
-        outbound_node.inbound_nodes.append(inbound_node)
-
-        self.weight = np.random.randn() * np.sqrt(2 / self.inbound_node.value.shape[1]) # He initialization
-        self.bias = 0.0
-
-        self.activation = ReluActivation(self.inbound_node.value * self.weight + self.bias)
-
-    def forward(self):
-        self.activation.forward()
-        self.outbound_node.value += self.activation.output 
-
-class InputNode:
-    def __init__(self, value):
-        self.value = value
-        self.outbound_nodes = []
-
-class OutputNode:
-    def __init__(self):
-        self.value = None
-        self.activation = SigmoidActivation(self.value)
-
-    def forward(self):
-        self.activation.inputs = self.value
-        self.activation.forward()
-        self.value += self.activation.output
-
-class NeuralNetwork:
-    pass
+class OutputLayer(Layer):
+    def __init__(self, input_size: int, output_size: int):
+        self.weights = np.random.randn(input_size, output_size) * np.sqrt(1.0 / input_size)
+        self.biases = np.zeroes((1, output_size))
