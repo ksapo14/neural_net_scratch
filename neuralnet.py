@@ -28,6 +28,15 @@ class Node:
         self.outbound_nodes = []
         self.value = None 
 
+        self.activate = ReluActivation(self.value)
+
+    def forward(self):
+        total_input = sum([node.value for node in self.inbound_nodes])
+        self.value = total_input
+        self.activate.inputs = self.value
+        self.activate.forward()
+        self.value = self.activate.output
+
 class Edge:
     def __init__(self, inbound_node, outbound_node):
         self.inbound_node = inbound_node
