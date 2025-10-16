@@ -57,7 +57,7 @@ class OutputNode:
     def forward(self):
         self.activation.inputs = self.value
         self.activation.forward()
-        self.value = self.activation.output
+        self.value += self.activation.output
 
 class NeuralNetwork:
     pass
