@@ -20,6 +20,22 @@ class ReluActivation:
     def forward(self, inputs: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         self.output = np.maximum(0, inputs)
         return self.output
+    
+class BCELoss:
+    def calculate_fwd(self, predictions, actuals):
+        self.predictions = predictions
+        self.actuals = actuals
+
+        loss = -np.mean(actuals * np.log(predictions) + (1 - actuals) * np.log(1 - predictions))
+        return loss
+    
+    def calculate_back(self, predictions, actuals):
+        self.predictions = predictions
+        self.actuals = actuals
+        n = len(self.predictions)
+
+        gradient = -(actuals / predictions - (1 - actuals) / (1 - predictions)) / n
+        return gradient
 
 class Layer:
     def __init__(self, input_size: int, output_size: int):
@@ -43,7 +59,3 @@ class OutputLayer(Layer):
     def __init__(self, input_size: int, output_size: int):
         self.weights = np.random.randn(input_size, output_size) * np.sqrt(1.0 / input_size)
         self.biases = np.zeroes((1, output_size))
-
-hi1 = ReluActivation()
-hi = SigmoidActivation()
-print(hi.forward(hi1.forward(np.array([1,-2,3,-4]))))
