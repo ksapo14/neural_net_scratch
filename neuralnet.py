@@ -22,20 +22,28 @@ class ReluActivation:
         return self.output
     
 class BCELoss:
-    def calculate_fwd(self, predictions, actuals):
+    def calculate_fwd(self, predictions: npt.NDArray[np.float64], actuals: npt.NDArray[np.float64]) -> float:
         self.predictions = predictions
         self.actuals = actuals
 
         loss = -np.mean(actuals * np.log(predictions) + (1 - actuals) * np.log(1 - predictions))
         return loss
     
-    def calculate_back(self, predictions, actuals):
+    def calculate_back(self, predictions: npt.NDArray[np.float64], actuals: npt.NDArray[np.float64]) -> float:
         self.predictions = predictions
         self.actuals = actuals
         n = len(self.predictions)
 
         gradient = -(actuals / predictions - (1 - actuals) / (1 - predictions)) / n
         return gradient
+
+class SDGOptimizer:
+    def __init__(self, *, lr):
+        self.lr = lr
+
+    def update(self, layer):
+        layer.weights -= self.lr * layer.grad_weights
+        layer.biases -= self.lr * layer.grad_weights
 
 class Layer:
     def __init__(self, input_size: int, output_size: int):
