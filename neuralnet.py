@@ -16,6 +16,17 @@ iris = load_iris()
 # Find how to implement regularization
 
 #%%
+class SoftmaxActivation:
+    def forward(self, inputs: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        exp_shifted = np.exp(inputs - np.max(inputs, axis=-1, keepdims=True))
+        self.output = exp_shifted / np.sum(exp_shifted, axis=-1, keepdims=True)
+        return self.output
+
+    def backward(self, grad_output: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        s = self.output.reshape(-1, 1)
+        jacobian = np.diagflat(s) - np.dot(s, s.T)
+        return np.dot(jacobian, grad_output)
+
 class SigmoidActivation:
     def forward(self, inputs: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         self.output = 1 / (1 + np.exp(-inputs))
@@ -82,7 +93,7 @@ class OutputLayer(Layer):
         self.biases = np.zeros((1, output_size))
 
 class NeuralNetwork():
-    def __init__(self):
+    def __init__(self, layers):
         pass
 
 # %%
