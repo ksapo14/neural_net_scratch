@@ -24,6 +24,7 @@ class SigmoidActivation:
 
 class ReluActivation:
     def forward(self, inputs: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        self.inputs = inputs
         self.output = np.maximum(0, inputs)
         return self.output
     
@@ -50,12 +51,12 @@ class SDGOptimizer:
 
     def update(self, layer):
         layer.weights -= self.lr * layer.grad_weights
-        layer.biases -= self.lr * layer.grad_weights
+        layer.biases -= self.lr * layer.grad_biases
 
 class Layer:
     def __init__(self, *, input_size: int, output_size: int):
         self.weights = np.random.randn(input_size, output_size) * np.sqrt(2.0 / input_size)
-        self.biases = np.zeroes((1, output_size))
+        self.biases = np.zeros((1, output_size))
 
     def forward(self, inputs: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         self.inputs = inputs
@@ -73,7 +74,7 @@ class Layer:
 class OutputLayer(Layer):
     def __init__(self, input_size: int, output_size: int):
         self.weights = np.random.randn(input_size, output_size) * np.sqrt(1.0 / input_size)
-        self.biases = np.zeroes((1, output_size))
+        self.biases = np.zeros((1, output_size))
 
 class NeuralNetwork():
     def __init__(self):
@@ -101,11 +102,11 @@ if __name__ == '__main__':
     sigmoid = SigmoidActivation()
 
     loss_fn = BCELoss()
-    optimizer = SDGOptimizer()
+    optimizer = SDGOptimizer(lr=0.5)
 
     z1 = l1.forward(X)
     a1 = relu.forward(z1)
-    z2 = l1.forward(a1)
+    z2 = l2.forward(a1)
     a2 = sigmoid.forward(z2)
 
     loss = loss_fn.calculate_fwd(a2, y)
