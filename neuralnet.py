@@ -1,3 +1,4 @@
+#%%
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.datasets import load_iris
@@ -5,12 +6,16 @@ import numpy.typing as npt
 from typing import List, Tuple, Callable, Any
 
 iris = load_iris()
-X = np.array(iris.data)
-y = np.array(iris.target)
+# X = np.array(iris.data)
 
+# X = (X-X.mean(axis=0))/X.std(axis=0)
+
+# y = np.array(iris.target)
+# y = (y == 1).astype(int)
 # Research Dropouts
 # Find how to implement regularization
 
+#%%
 class SigmoidActivation:
     def forward(self, inputs: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         self.output = 1 / (1 + np.exp(-inputs))
@@ -42,7 +47,7 @@ class BCELoss:
     def calculate_back(self) -> float:
         n = len(self.predictions)
 
-        gradient = -(self.actuals / self.predictions - (1 - self.actuals) / (1 - self.predictions)) / n
+        gradient = self.predictions - self.actuals
         return gradient
 
 class SDGOptimizer:
@@ -80,29 +85,31 @@ class NeuralNetwork():
     def __init__(self):
         pass
 
-if __name__ == '__main__':
-    X = np.array([
-        [0,0],
-        [1,0],
-        [0,1],
-        [1,1]
-    ])
+# %%
+X = np.array([
+    [0,0],
+    [1,0],
+    [0,1],
+    [1,1]
+])
 
-    y = np.array([
-        [1],
-        [0],
-        [0],
-        [1]
-    ])
+y = np.array([
+    [1],
+    [0],
+    [0],
+    [1]
+])
 
-    l1 = Layer(input_size=2, output_size=2)
-    l2 = Layer(input_size=2, output_size=1)
+l1 = Layer(input_size=2, output_size=2)
+l2 = Layer(input_size=2, output_size=1)
 
-    relu = ReluActivation()
-    sigmoid = SigmoidActivation()
+relu = ReluActivation()
+sigmoid = SigmoidActivation()
 
-    loss_fn = BCELoss()
-    optimizer = SDGOptimizer(lr=0.5)
+loss_fn = BCELoss()
+optimizer = SDGOptimizer(lr=0.1)
+
+for epoch in range(1000):
 
     z1 = l1.forward(X)
     a1 = relu.forward(z1)
@@ -110,7 +117,10 @@ if __name__ == '__main__':
     a2 = sigmoid.forward(z2)
 
     loss = loss_fn.calculate_fwd(a2, y)
+    preds = (a2 > 0.5).astype(int)
+    accuracy = np.mean(preds == y)
     print(f'Loss: {loss}')
+    print(f'Accuracy {accuracy}')
 
     # Backprop
     grad = loss_fn.calculate_back()
@@ -121,3 +131,4 @@ if __name__ == '__main__':
 
     optimizer.update(l2)
     optimizer.update(l1)
+# %%
