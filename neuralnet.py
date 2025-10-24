@@ -24,8 +24,8 @@ class SoftmaxActivation:
 
     def backward(self, grad_output: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         s = self.output.reshape(-1, 1)
-        jacobian = np.diagflat(s) - np.dot(s, s.T)
-        return np.dot(jacobian, grad_output)
+        j = np.diagflat(s) - np.dot(s, s.T)
+        return np.dot(j, grad_output)
 
 class SigmoidActivation:
     def forward(self, inputs: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
@@ -58,7 +58,7 @@ class BCELoss:
     def calculate_back(self) -> float:
         n = len(self.predictions)
 
-        gradient = self.predictions - self.actuals
+        gradient = (self.predictions - self.actuals) / n
         return gradient
 
 class SDGOptimizer:
@@ -93,9 +93,36 @@ class OutputLayer(Layer):
         self.biases = np.zeros((1, output_size))
 
 class NeuralNetwork():
-    def __init__(self, layers):
-        pass
+    def __init__(self, layers:List[Tuple[Layer, Any]]=[], epochs=1000, lr=0.01, batch_size=32):
+        self.layers = layers
+        self.epochs = epochs
+        self.lr = lr
+        self.batch_size = batch_size
+    
+    def train(self, X, y):
+        z = 0
+        a = 0
+        loss_fn = BCELoss()
+        optimizer = SDGOptimizer(lr=self.lr)
+        
+        for epoch in range(self.epochs):
+            for layer, activation in self.layers:
+                z = layer.forward(X)
+                a = activation.forward(z)
 
+            loss = loss_fn.calculate_fwd(a3, y)
+            preds = (a3 > 0.5).astype(int)
+            accuracy = np.mean(preds == y)
+            print(f'Loss: {loss}')
+            print(f'Accuracy {accuracy}')
+
+            grad = loss_fn.calculate_back()
+            for layer, activation in reversed(self.layers):
+                grad = activation.backward(grad)
+                grad = layer.backward(grad)
+                optimizer.update(layer)
+
+        
 # %%
 X = np.array([
     [0,0],
@@ -112,9 +139,11 @@ y = np.array([
 ])
 
 l1 = Layer(input_size=2, output_size=2)
-l2 = Layer(input_size=2, output_size=1)
+l2 = Layer(input_size=2, output_size=3)
+l3 = Layer(input_size=3, output_size=1)
 
-relu = ReluActivation()
+relu1 = ReluActivation()
+relu2 = ReluActivation()
 sigmoid = SigmoidActivation()
 
 loss_fn = BCELoss()
@@ -123,12 +152,15 @@ optimizer = SDGOptimizer(lr=0.1)
 for epoch in range(1000):
 
     z1 = l1.forward(X)
-    a1 = relu.forward(z1)
+    a1 = relu1.forward(z1)
     z2 = l2.forward(a1)
-    a2 = sigmoid.forward(z2)
+    a2 = relu2.forward(z2)
+    z3 = l3.forward(a2)
+    a3 = sigmoid.forward(z3)
 
-    loss = loss_fn.calculate_fwd(a2, y)
-    preds = (a2 > 0.5).astype(int)
+
+    loss = loss_fn.calculate_fwd(a3, y)
+    preds = (a3 > 0.5).astype(int)
     accuracy = np.mean(preds == y)
     print(f'Loss: {loss}')
     print(f'Accuracy {accuracy}')
@@ -136,10 +168,13 @@ for epoch in range(1000):
     # Backprop
     grad = loss_fn.calculate_back()
     grad = sigmoid.backward(grad)
+    grad = l3.backward(grad)
+    grad = relu2.backward(grad)
     grad = l2.backward(grad)
-    grad = relu.backward(grad)
+    grad = relu1.backward(grad)
     grad = l1.backward(grad)
 
+    optimizer.update(l3)
     optimizer.update(l2)
     optimizer.update(l1)
 # %%
