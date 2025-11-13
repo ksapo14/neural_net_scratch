@@ -5,7 +5,7 @@ from sklearn.datasets import load_iris
 import numpy.typing as npt
 from typing import List, Tuple, Callable, Any
 
-iris = load_iris()
+# iris = load_iris()
 # X = np.array(iris.data)
 
 # X = (X-X.mean(axis=0))/X.std(axis=0)
@@ -32,11 +32,9 @@ class SigmoidActivation:
         self.output = 1 / (1 + np.exp(-inputs))
         return self.output
     
-    def backward(self, grad_output: float) -> float:
-        # Derivative: sigmoid(x) * (1 - sigmoid(x))
+    def backward(self, grad_output: np.ndarray) -> np.ndarray:
         sigmoid_derivative = self.output * (1 - self.output)
         return grad_output * sigmoid_derivative
-
 
 class ReluActivation:
     def forward(self, inputs: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
@@ -58,10 +56,10 @@ class BCELoss:
     def calculate_back(self) -> float:
         n = len(self.predictions)
 
-        gradient = (self.predictions - self.actuals) / n
+        gradient = (self.predictions - self.actuals) / (self.predictions * (1 - self.predictions) * n)
         return gradient
 
-class SDGOptimizer:
+class SGDOptimizer:
     def __init__(self, *, lr):
         self.lr = lr
 
@@ -92,7 +90,7 @@ class OutputLayer(Layer):
         self.weights = np.random.randn(input_size, output_size) * np.sqrt(1.0 / input_size)
         self.biases = np.zeros((1, output_size))
 
-class NeuralNetwork():
+class NeuralNetwork:
     def __init__(self, layers:List[Tuple[Layer, Any]]=[], epochs=1000, lr=0.01, batch_size=32):
         self.layers = layers
         self.epochs = epochs
@@ -100,81 +98,76 @@ class NeuralNetwork():
         self.batch_size = batch_size
     
     def train(self, X, y):
-        z = 0
-        a = 0
         loss_fn = BCELoss()
-        optimizer = SDGOptimizer(lr=self.lr)
+        optimizer = SGDOptimizer(lr=self.lr)
         
         for epoch in range(self.epochs):
+            # Forward pass
+            a = X
             for layer, activation in self.layers:
-                z = layer.forward(X)
+                z = layer.forward(a)
                 a = activation.forward(z)
 
-            loss = loss_fn.calculate_fwd(a3, y)
-            preds = (a3 > 0.5).astype(int)
+            # Compute loss and accuracy
+            loss = loss_fn.calculate_fwd(a, y)
+            preds = (a > 0.5).astype(int)
             accuracy = np.mean(preds == y)
-            print(f'Loss: {loss}')
-            print(f'Accuracy {accuracy}')
-
+            print(f'Epoch {epoch+1}: Loss = {loss:.4f}, Accuracy = {accuracy:.2f}')
+            
+            # Backward pass
             grad = loss_fn.calculate_back()
             for layer, activation in reversed(self.layers):
                 grad = activation.backward(grad)
                 grad = layer.backward(grad)
                 optimizer.update(layer)
 
+
         
 # %%
-X = np.array([
-    [0,0],
-    [1,0],
-    [0,1],
-    [1,1]
-])
+if __name__ == "__main__":
+    X = np.array([
+        [0,0],
+        [1,0],
+        [0,1],
+        [1,1]
+    ])
 
-y = np.array([
-    [1],
-    [0],
-    [0],
-    [1]
-])
+    y = np.array([
+        [0],
+        [1],
+        [1],
+        [0]
+    ])
 
-l1 = Layer(input_size=2, output_size=2)
-l2 = Layer(input_size=2, output_size=3)
-l3 = Layer(input_size=3, output_size=1)
+    #nn = NeuralNetwork(layers=[
+    #    (Layer(input_size=2, output_size=2), ReluActivation()),
+    #    (Layer(input_size=2, output_size=1), SigmoidActivation())
+    #])
+    layer1 = Layer(input_size=2, output_size=2)
+    activation1 = ReluActivation()
+    layer2 = Layer(input_size=2, output_size=1)
+    activation2 = SigmoidActivation()
+    loss_fn = BCELoss()
+    optimizer = SGDOptimizer(lr=0.1)
 
-relu1 = ReluActivation()
-relu2 = ReluActivation()
-sigmoid = SigmoidActivation()
+    for i in range(1000):
+        z1 = layer1.forward(X)
+        a1 = activation1.forward(z1)
+        z2 = layer2.forward(a1)
+        a2 = activation2.forward(z2)
 
-loss_fn = BCELoss()
-optimizer = SDGOptimizer(lr=0.1)
+        loss = loss_fn.calculate_fwd(a2, y)
+        preds = (a2 > 0.5).astype(int)
+        accuracy = np.mean(preds == y)
+        print(f'Loss: {loss}')
+        print(f'Accuracy {accuracy}')
 
-for epoch in range(1000):
+        grad = loss_fn.calculate_back()
+        grad = activation2.backward(grad)
+        grad = layer2.backward(grad)
+        grad = activation1.backward(grad)
+        grad = layer1.backward(grad)
 
-    z1 = l1.forward(X)
-    a1 = relu1.forward(z1)
-    z2 = l2.forward(a1)
-    a2 = relu2.forward(z2)
-    z3 = l3.forward(a2)
-    a3 = sigmoid.forward(z3)
-
-
-    loss = loss_fn.calculate_fwd(a3, y)
-    preds = (a3 > 0.5).astype(int)
-    accuracy = np.mean(preds == y)
-    print(f'Loss: {loss}')
-    print(f'Accuracy {accuracy}')
-
-    # Backprop
-    grad = loss_fn.calculate_back()
-    grad = sigmoid.backward(grad)
-    grad = l3.backward(grad)
-    grad = relu2.backward(grad)
-    grad = l2.backward(grad)
-    grad = relu1.backward(grad)
-    grad = l1.backward(grad)
-
-    optimizer.update(l3)
-    optimizer.update(l2)
-    optimizer.update(l1)
+        optimizer.update(layer2)
+        optimizer.update(layer1)
 # %%
