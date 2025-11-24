@@ -1,1 +1,1 @@
-# neural_net_scratch
+# Creating a Neural Network from Scratch
