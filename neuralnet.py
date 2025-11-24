@@ -1,19 +1,19 @@
 #%%
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.datasets import load_iris
+from sklearn.datasets import load_iris, load_digits
 import numpy.typing as npt
 from typing import List, Tuple, Callable, Any
 
-# iris = load_iris()
-# X = np.array(iris.data)
+iris = load_iris()
+X = np.array(iris.data)
 
-# X = (X-X.mean(axis=0))/X.std(axis=0)
+X = (X-X.mean(axis=0))/X.std(axis=0)
 
-# y = np.array(iris.target)
-# y = (y == 1).astype(int)
-# Research Dropouts
-# Find how to implement regularization
+y = np.array(iris.target)
+y_one_hot = np.zeros((y.size, y.max()+1))
+y_one_hot[np.arange(y.size), y] = 1
+
 
 #%%
 class SoftmaxActivation:
@@ -23,9 +23,7 @@ class SoftmaxActivation:
         return self.output
 
     def backward(self, grad_output: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-        s = self.output.reshape(-1, 1)
-        j = np.diagflat(s) - np.dot(s, s.T)
-        return np.dot(j, grad_output)
+        return grad_output
 
 class SigmoidActivation:
     def forward(self, inputs: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
@@ -58,6 +56,16 @@ class BCELoss:
 
         gradient = (self.predictions - self.actuals) / (self.predictions * (1 - self.predictions) * n)
         return gradient
+    
+class CrossEntropyLoss:
+    def calculate_fwd(self, predictions, actuals):
+        self.predictions = np.clip(predictions, 1e-9, 1 - 1e-9)
+        self.actuals = actuals
+        return -np.mean(np.sum(actuals * np.log(self.predictions), axis=1))
+
+    def calculate_back(self):
+        n = len(self.predictions)
+        return (self.predictions - self.actuals) / n
 
 class SGDOptimizer:
     def __init__(self, *, lr):
@@ -69,6 +77,8 @@ class SGDOptimizer:
 
 class Layer:
     def __init__(self, *, input_size: int, output_size: int):
+        self.output_size = output_size
+        self.input_size = input_size
         self.weights = np.random.randn(input_size, output_size) * np.sqrt(2.0 / input_size)
         self.biases = np.zeros((1, output_size))
 
@@ -81,26 +91,30 @@ class Layer:
     def backward(self, grad_output: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         self.grad_weights = self.inputs.T @ grad_output
         self.grad_biases = np.sum(grad_output, axis=0, keepdims=True)
-        grad_input = np.dot(grad_output, self.weights.T)
+        grad_input = grad_output @ self.weights.T
 
         return grad_input
-
-class OutputLayer(Layer):
-    def __init__(self, input_size: int, output_size: int):
-        self.weights = np.random.randn(input_size, output_size) * np.sqrt(1.0 / input_size)
-        self.biases = np.zeros((1, output_size))
+    
+class Dropout:
+    def __init__(self, *, prob):
+        self.prob = prob
+    
+    def forward(self, inputs):
+        self.screen = np.random.binomial(n=1, size=inputs.shape[0], p=0.5) / (1 - self.prob)
+        self.screen = self.screen.reshape((-1,1))
+        return inputs * self.screen
+    
+    def backward(self, grad_output):
+        return grad_output * self.screen
 
 class NeuralNetwork:
-    def __init__(self, layers:List[Tuple[Layer, Any]]=[], epochs=1000, lr=0.01, batch_size=32):
+    def __init__(self, layers:List[Tuple[Layer, Any]], loss_fn=BCELoss(), epochs=1000, lr=0.01):
         self.layers = layers
+        self.loss_fn = loss_fn
         self.epochs = epochs
         self.lr = lr
-        self.batch_size = batch_size
-    
     def train(self, X, y):
-        loss_fn = BCELoss()
         optimizer = SGDOptimizer(lr=self.lr)
-        
         for epoch in range(self.epochs):
             # Forward pass
             a = X
@@ -108,14 +122,15 @@ class NeuralNetwork:
                 z = layer.forward(a)
                 a = activation.forward(z)
 
-            # Compute loss and accuracy
-            loss = loss_fn.calculate_fwd(a, y)
-            preds = (a > 0.5).astype(int)
-            accuracy = np.mean(preds == y)
-            print(f'Epoch {epoch+1}: Loss = {loss:.4f}, Accuracy = {accuracy:.2f}')
-            
-            # Backward pass
-            grad = loss_fn.calculate_back()
+            loss = self.loss_fn.calculate_fwd(a, y)
+            preds = np.argmax(a, axis=1)
+            labels = np.argmax(y, axis=1)
+            acc = np.mean(preds == labels)
+
+            print(f"Epoch {epoch}: Loss={loss:.4f}, Acc={acc:.2f}")
+
+            # Backprop
+            grad = self.loss_fn.calculate_back()
             for layer, activation in reversed(self.layers):
                 grad = activation.backward(grad)
                 grad = layer.backward(grad)
@@ -125,49 +140,41 @@ class NeuralNetwork:
         
 # %%
 if __name__ == "__main__":
-    X = np.array([
-        [0,0],
-        [1,0],
-        [0,1],
-        [1,1]
-    ])
+    # X = np.array([
+    #     [0,0],
+    #     [1,0],
+    #     [0,1],
+    #     [1,1]
+    # ])
 
-    y = np.array([
-        [0],
-        [1],
-        [1],
-        [0]
-    ])
+    # y = np.array([
+    #     [0],
+    #     [1],
+    #     [1],
+    #     [0]
+    # ])
 
     #nn = NeuralNetwork(layers=[
     #    (Layer(input_size=2, output_size=2), ReluActivation()),
     #    (Layer(input_size=2, output_size=1), SigmoidActivation())
     #])
-    layer1 = Layer(input_size=2, output_size=2)
+    layer1 = Layer(input_size=4, output_size=8)
     activation1 = ReluActivation()
-    layer2 = Layer(input_size=2, output_size=1)
-    activation2 = SigmoidActivation()
-    loss_fn = BCELoss()
-    optimizer = SGDOptimizer(lr=0.1)
+    dropout1 = Dropout(prob=0)
+    layer2 = Layer(input_size=8, output_size=3)
+    activation2 = SoftmaxActivation()
+    loss_fn = CrossEntropyLoss()
 
-    for i in range(1000):
-        z1 = layer1.forward(X)
-        a1 = activation1.forward(z1)
-        z2 = layer2.forward(a1)
-        a2 = activation2.forward(z2)
+    nn = NeuralNetwork(
+        layers=[
+            (layer1, activation1),
+            (Layer(input_size=layer1.output_size, output_size=layer1.output_size), dropout1),
+            (layer2, activation2)
+        ],
+        loss_fn=loss_fn,
+        epochs=1000,
+        lr=0.1
+    )
 
-        loss = loss_fn.calculate_fwd(a2, y)
-        preds = (a2 > 0.5).astype(int)
-        accuracy = np.mean(preds == y)
-        print(f'Loss: {loss}')
-        print(f'Accuracy {accuracy}')
-
-        grad = loss_fn.calculate_back()
-        grad = activation2.backward(grad)
-        grad = layer2.backward(grad)
-        grad = activation1.backward(grad)
-        grad = layer1.backward(grad)
-
-        optimizer.update(layer2)
-        optimizer.update(layer1)
+    nn.train(X, y_one_hot)
 # %%
