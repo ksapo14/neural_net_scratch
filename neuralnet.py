@@ -72,8 +72,12 @@ class SGDOptimizer:
         self.lr = lr
 
     def update(self, layer):
-        layer.weights -= self.lr * layer.grad_weights
-        layer.biases -= self.lr * layer.grad_biases
+        if isinstance(layer, Layer):
+            layer.weights -= self.lr * layer.grad_weights
+            layer.biases -= self.lr * layer.grad_biases
+        else:
+            layer.kernels -= self.lr * layer.grad_kernels
+            layer.bias -= self.lr * layer.grad_bias
 
 class Layer:
     def __init__(self, *, input_size: int, output_size: int):
@@ -120,7 +124,7 @@ class NeuralNetwork:
             a = X
             for layer, activation in self.layers:
                 z = layer.forward(a)
-                a = activation.forward(z)
+                a = activation.forward(z) if activation else z
 
             loss = self.loss_fn.calculate_fwd(a, y)
             preds = np.argmax(a, axis=1)
@@ -132,9 +136,16 @@ class NeuralNetwork:
             # Backprop
             grad = self.loss_fn.calculate_back()
             for layer, activation in reversed(self.layers):
-                grad = activation.backward(grad)
+                grad = activation.backward(grad) if activation else grad
                 grad = layer.backward(grad)
                 optimizer.update(layer)
+    def predict(self, features):
+        a = features
+        for layer, activation in self.layers:
+                z = layer.forward(a)
+                a = activation.forward(z) if activation else z
+
+        return np.argmax(a, axis=1)
 
 
         
@@ -177,4 +188,5 @@ if __name__ == "__main__":
     )
 
     nn.train(X, y_one_hot)
+    print(nn.predict(X))
 # %%
