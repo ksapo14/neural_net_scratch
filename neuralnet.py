@@ -68,44 +68,58 @@ class CrossEntropyLoss:
         return (self.predictions - self.actuals) / n
 
 class SGDOptimizer:
-    def __init__(self, *, lr):
+    def __init__(self, lr=0.01):
         self.lr = lr
-
+    
     def update(self, layer):
-        if isinstance(layer, Layer):
-            layer.weights -= self.lr * layer.grad_weights
-            layer.biases -= self.lr * layer.grad_biases
-        else:
-            layer.kernels -= self.lr * layer.grad_kernels
-            layer.bias -= self.lr * layer.grad_bias
+        # Handle attribute error that keeps popping up for layers without weights/biases
+        try:
+            # Try convolutional layer first
+            if hasattr(layer, 'kernels'):
+                if hasattr(layer, 'kernels_grad') and layer.kernels_grad is not None:
+                    layer.kernels -= self.lr * layer.kernels_grad
+                if hasattr(layer, 'bias') and hasattr(layer, 'bias_grad') and layer.bias_grad is not None:
+                    layer.bias -= self.lr * layer.bias_grad
+            
+            # Try fully connected layer
+            elif hasattr(layer, 'weights'):
+                if hasattr(layer, 'weights_grad') and layer.weights_grad is not None:
+                    layer.weights -= self.lr * layer.weights_grad
+                if hasattr(layer, 'bias') and hasattr(layer, 'bias_grad') and layer.bias_grad is not None:
+                    layer.bias -= self.lr * layer.bias_grad
+        except AttributeError:
+            pass
 
 class Layer:
     def __init__(self, *, input_size: int, output_size: int):
         self.output_size = output_size
         self.input_size = input_size
         self.weights = np.random.randn(input_size, output_size) * np.sqrt(2.0 / input_size)
-        self.biases = np.zeros((1, output_size))
+        self.bias = np.zeros((1, output_size))
 
     def forward(self, inputs: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-        self.inputs = inputs
-        self.output = inputs @ self.weights + self.biases
+        if inputs.ndim == 1:
+            inputs = inputs.reshape(1, -1)
 
+        self.inputs = inputs
+        self.output = inputs @ self.weights + self.bias
         return self.output
     
     def backward(self, grad_output: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-        self.grad_weights = self.inputs.T @ grad_output
-        self.grad_biases = np.sum(grad_output, axis=0, keepdims=True)
+        self.weights_grad = self.inputs.T @ grad_output  # Changed from grad_weights
+        self.bias_grad = np.sum(grad_output, axis=0, keepdims=True)  # Changed from grad_biases
         grad_input = grad_output @ self.weights.T
-
         return grad_input
     
 class Dropout:
     def __init__(self, *, prob):
         self.prob = prob
+        self.training = True
     
     def forward(self, inputs):
-        self.screen = np.random.binomial(n=1, size=inputs.shape[0], p=0.5) / (1 - self.prob)
-        self.screen = self.screen.reshape((-1,1))
+        if not self.training:
+            return inputs
+        self.screen = np.random.binomial(1, 1-self.prob, size=inputs.shape) / (1 - self.prob)
         return inputs * self.screen
     
     def backward(self, grad_output):
@@ -119,6 +133,7 @@ class NeuralNetwork:
         self.lr = lr
     def train(self, X, y):
         optimizer = SGDOptimizer(lr=self.lr)
+        
         for epoch in range(self.epochs):
             # Forward pass
             a = X
@@ -179,7 +194,7 @@ if __name__ == "__main__":
     nn = NeuralNetwork(
         layers=[
             (layer1, activation1),
-            (Layer(input_size=layer1.output_size, output_size=layer1.output_size), dropout1),
+            # (Layer(input_size=layer1.output_size, output_size=layer1.output_size), dropout1),
             (layer2, activation2)
         ],
         loss_fn=loss_fn,

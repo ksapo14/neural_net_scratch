@@ -6,14 +6,15 @@ from skimage import data
 import matplotlib.pyplot as plt
 from sklearn.datasets import fetch_openml
 from skimage.util import view_as_windows
-from neuralnet import ReluActivation, NeuralNetwork, SGDOptimizer, CrossEntropyLoss, SoftmaxActivation, Layer
-# Research adversarial patching
+from neuralnet import BCELoss, ReluActivation, NeuralNetwork, SGDOptimizer, CrossEntropyLoss, SoftmaxActivation, Layer
 
 #%%
 mnist = fetch_openml('mnist_784', version=1, as_frame=False)
 
-img = mnist.data[0].reshape(28, 28).astype(np.uint8)
-img = img[:,:, None]
+X = mnist.data[:10].reshape(-1, 28, 28, 1)
+y = mnist.target.astype(np.int64)[:10]
+y_one_hot = np.zeros((y.size, y.max()+1))
+y_one_hot[np.arange(y.size), y] = 1
 
 # %%
 
@@ -26,8 +27,10 @@ class ConvolutionalLayer:
         self.in_channel = in_channel
         self.out_channel = out_channel
         self.kernels = np.random.normal(loc=0.0, scale=0.1, size=(kernel_size, kernel_size, in_channel, out_channel))
+        self.kernels_grad = None
+        self.bias_grad = None
 
-    def augment(self):
+    def augment(self, x):
         pass
 
     def pad(self, x):
@@ -35,6 +38,9 @@ class ConvolutionalLayer:
         return np.pad(x, ((pad,pad), (pad,pad), (0,0)), mode="constant") if pad > 0 else x
 
     def forward(self, inputs):
+        if inputs.ndim == 2:
+            inputs = inputs[..., None]
+            
         self.inp_back = inputs
         inputs = self.pad(inputs)
 
@@ -44,19 +50,20 @@ class ConvolutionalLayer:
             arr_in=inputs, 
             window_shape=(k, k, self.in_channel), 
             step=(self.stride, self.stride, 1)
-        ) [:, :, 0, :, :, :]
+        )[:, :, 0, :, :, :]
 
         self.inp_window_back = input_window
 
         conv = np.sum(input_window[..., None] * self.kernels, axis=(2, 3, 4)) + self.bias
-        # Solution for shape issue from ChatGPT
-        # if conv.shape[-1] == 1:
-        #     conv = conv[..., 0]   # squeeze last axis if only one output channel
 
         return conv 
     
     def backward(self, output_grad):
         inputs = self.inp_back
+        
+        if inputs.ndim == 2:
+            inputs = inputs[..., None]
+            
         inputs_pad = self.pad(inputs)
         k_size = self.kernel_size
 
@@ -76,7 +83,7 @@ class ConvolutionalLayer:
 
                 grad_window = np.sum(self.kernels * output_grad[i, j], axis=-1)
 
-                grad_input_pad[h_start:h_start+k_size, w_start:w_start+k_size, :] += grad_window
+                grad_input_pad[h_start:h_start+k_size, w_start:w_start+k_size, :] = grad_input_pad[h_start:h_start+k_size, w_start:w_start+k_size, :].astype(np.float64) + grad_window
 
         if self.padding > 0:
             pad = self.padding
@@ -88,7 +95,6 @@ class ConvolutionalLayer:
         self.bias_grad = bias_grad
 
         return grad_input
-
         
     
 class MaxPoolLayer:
@@ -96,23 +102,25 @@ class MaxPoolLayer:
         self.pooling_size = pooling_size
 
     def forward(self, inputs):
-        # ensure 3D
         if inputs.ndim == 2:
-            inputs = inputs[..., None]  # (H,W,1)
+            inputs = inputs[..., None]  
 
-        C = inputs.shape[2]
+        self.input_shape = inputs.shape
+        
+        H, W, C = inputs.shape
+        pool_size = self.pooling_size
 
-        # only pool over H and W
         input_window = view_as_windows(
             inputs,
-            window_shape=(self.pooling_size, self.pooling_size, C),
-            step=(self.pooling_size, self.pooling_size, C)
-        ) [:, :, 0, :, :, :]
+            window_shape=(pool_size, pool_size, C),
+            step=(pool_size, pool_size, C)
+        )[:, :, 0, :, :, :]
 
-        pooled = np.max(input_window, axis=(2,3))
-
-        # # Wacky output extra dimension solution from Claude
-        # pooled = pooled.squeeze(axis=-1)
+        H_out, W_out = input_window.shape[0], input_window.shape[1]
+        reshaped = input_window.transpose(0, 1, 4, 2, 3).reshape(H_out, W_out, C, -1)
+        
+        pooled = np.max(reshaped, axis=-1)
+        self.max_indices = np.argmax(reshaped, axis=-1)  # Cache for backward
 
         return pooled
     
@@ -122,7 +130,6 @@ class MaxPoolLayer:
         
         input_grad = np.zeros(self.input_shape)
         
-        # For each output position, route gradient to max position
         for i in range(output_grad.shape[0]):
             for j in range(output_grad.shape[1]):
                 h_start = i * pool_size
@@ -140,6 +147,84 @@ class MaxPoolLayer:
                     input_grad[h_start + max_h, w_start + max_w, c] += output_grad[i, j, c]
         
         return input_grad
+    
+
+class FlattenLayer:
+    def __init__(self):
+        self.input_shape = None
+    
+    def forward(self, inputs):
+        self.input_shape = inputs.shape
+        
+        return inputs.flatten().reshape(1, -1)
+    
+    def backward(self, grad_output):
+        return grad_output.reshape(self.input_shape)
+
+class ConvNeuralNetwork(NeuralNetwork):
+    def __init__(self, layers, loss_fn=BCELoss(), epochs=1000, lr=0.01):
+        super().__init__(layers, loss_fn, epochs, lr)
+    
+    def train(self, X, y):
+        optimizer = SGDOptimizer(lr=self.lr)
+        n_samples = len(X)
+        
+        for epoch in range(self.epochs):
+            epoch_loss = 0
+            correct = 0
+            
+            # Process one sample at a time
+            for i in range(n_samples):
+                # Get single image and label
+                sample = X[i]  # Shape: (28, 28, 1) for images
+                label = y[i]   # Shape: (10,) for one-hot encoded
+                
+                # Forward pass
+                a = sample
+                for layer, activation in self.layers:
+                    z = layer.forward(a)
+                    a = activation.forward(z) if activation else z
+                
+                # Calculate loss
+                loss = self.loss_fn.calculate_fwd(a, label)
+                epoch_loss += loss
+                
+                # Calculate accuracy
+                pred = np.argmax(a)
+                true_label = np.argmax(label)
+                if pred == true_label:
+                    correct += 1
+                
+                # Backprop
+                grad = self.loss_fn.calculate_back()
+                for layer, activation in reversed(self.layers):
+                    grad = activation.backward(grad) if activation else grad
+                    grad = layer.backward(grad)
+                    optimizer.update(layer)
+            
+            # Print epoch statistics
+            avg_loss = epoch_loss / n_samples
+            acc = correct / n_samples
+            print(f"Epoch {epoch+1}/{self.epochs}: Loss={avg_loss:.4f}, Acc={acc:.4f}")
+    
+    def predict(self, features):
+        # Handle single image or batch
+        if features.ndim == 3:  # Single image (H, W, C)
+            a = features
+            for layer, activation in self.layers:
+                z = layer.forward(a)
+                a = activation.forward(z) if activation else z
+            return np.argmax(a)
+        else:  # Batch of images
+            predictions = []
+            for i in range(len(features)):
+                a = features[i]
+                for layer, activation in self.layers:
+                    z = layer.forward(a)
+                    a = activation.forward(z) if activation else z
+                predictions.append(np.argmax(a))
+            return np.array(predictions)
+
 
 #%%        
 layer1 = ConvolutionalLayer(1, 6, kernel_size=3, stride=1, padding=1)
@@ -154,19 +239,13 @@ fcl2 = Layer(input_size=120, output_size=10)
 activation4 = SoftmaxActivation()
 loss_fn = CrossEntropyLoss()
 
-conv = layer1.forward(img)
-activated = activation1.forward(conv)
-pooled = pool1.forward(activated)
-conv2 = layer2.forward(pooled)
-activated2 = activation2.forward(conv2)
-pooled2 = pool2.forward(activated2)
-
-nn = NeuralNetwork(
+nn = ConvNeuralNetwork(
     layers=[
         (layer1, activation1),
         (pool1, None),
         (layer2, activation2),
         (pool2, None),
+        (FlattenLayer(), None),
         (fcl1, activation3),
         (fcl2, activation4)
     ],
@@ -174,4 +253,6 @@ nn = NeuralNetwork(
     epochs=10,
     lr=0.01
 )
+
+nn.train(X, y_one_hot)
 # %%
