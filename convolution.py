@@ -1,8 +1,5 @@
 #%%
 import numpy as np
-import cv2
-from scipy.signal import convolve2d
-from skimage import data
 import matplotlib.pyplot as plt
 from sklearn.datasets import fetch_openml
 from skimage.util import view_as_windows
@@ -11,8 +8,8 @@ from neuralnet import BCELoss, ReluActivation, NeuralNetwork, SGDOptimizer, Cros
 #%%
 mnist = fetch_openml('mnist_784', version=1, as_frame=False)
 
-X = mnist.data[:10].reshape(-1, 28, 28, 1)
-y = mnist.target.astype(np.int64)[:10]
+X = mnist.data[:1000].reshape(-1, 28, 28, 1) / 255.0
+y = mnist.target.astype(np.int64)[:1000]
 y_one_hot = np.zeros((y.size, y.max()+1))
 y_one_hot[np.arange(y.size), y] = 1
 
@@ -60,39 +57,43 @@ class ConvolutionalLayer:
     
     def backward(self, output_grad):
         inputs = self.inp_back
-        
         if inputs.ndim == 2:
             inputs = inputs[..., None]
-            
+
         inputs_pad = self.pad(inputs)
-        k_size = self.kernel_size
+        k = self.kernel_size
+        s = self.stride
 
-        bias_grad = np.sum(output_grad, axis=(0,1))
+        self.bias_grad = np.sum(output_grad, axis=(0, 1))  # (out_channel,)
 
-        inputs_reshaped = self.inp_window_back[..., None]
-        output_grad_reshaped = output_grad[:, :, None, None, None, :]
+        inp_windows = self.inp_window_back  # already cached in forward
+        H_out, W_out = output_grad.shape[0], output_grad.shape[1]
 
-        kernels_grad = np.sum(inputs_reshaped * output_grad_reshaped, axis=(0,1))
+        inp_cols = inp_windows.reshape(H_out * W_out, -1)  # each row is a flattened patch
 
-        grad_input_pad = np.zeros_like(inputs_pad)
+        out_flat = output_grad.reshape(H_out * W_out, -1)
 
-        for i in range(output_grad.shape[0]):
-            for j in range(output_grad.shape[1]):
-                h_start = i * self.stride
-                w_start = j * self.stride
+        kernels_grad_flat = inp_cols.T.dot(out_flat)
+        self.kernels_grad = kernels_grad_flat.reshape(k, k, self.in_channel, self.out_channel)
 
-                grad_window = np.sum(self.kernels * output_grad[i, j], axis=-1)
+        kernels_flat = self.kernels.reshape(-1, self.out_channel)  # (k*k*in_channel, out_channel)
+        cols_grad = out_flat.dot(kernels_flat.T)                    # (H_out*W_out, k*k*in_channel)
 
-                grad_input_pad[h_start:h_start+k_size, w_start:w_start+k_size, :] = grad_input_pad[h_start:h_start+k_size, w_start:w_start+k_size, :].astype(np.float64) + grad_window
+        grad_input_pad = np.zeros_like(inputs_pad, dtype=np.float64)
+        idx = 0
+        for i in range(0, H_out):
+            for j in range(0, W_out):
+                patch = cols_grad[idx].reshape(k, k, self.in_channel)
+                h_start = i * s
+                w_start = j * s
+                grad_input_pad[h_start:h_start + k, w_start:w_start + k, :] += patch
+                idx += 1
 
         if self.padding > 0:
-            pad = self.padding
-            grad_input = grad_input_pad[pad:-pad, pad:-pad, :]
+            p = self.padding
+            grad_input = grad_input_pad[p:-p, p:-p, :]
         else:
             grad_input = grad_input_pad
-
-        self.kernels_grad = kernels_grad
-        self.bias_grad = bias_grad
 
         return grad_input
         
@@ -113,7 +114,7 @@ class MaxPoolLayer:
         input_window = view_as_windows(
             inputs,
             window_shape=(pool_size, pool_size, C),
-            step=(pool_size, pool_size, C)
+            step=(pool_size, pool_size, 1)
         )[:, :, 0, :, :, :]
 
         H_out, W_out = input_window.shape[0], input_window.shape[1]
@@ -165,7 +166,7 @@ class ConvNeuralNetwork(NeuralNetwork):
     def __init__(self, layers, loss_fn=BCELoss(), epochs=1000, lr=0.01):
         super().__init__(layers, loss_fn, epochs, lr)
     
-    def train(self, X, y):
+    def train(self, X, y, batch_size=32):
         optimizer = SGDOptimizer(lr=self.lr)
         n_samples = len(X)
         
@@ -250,9 +251,13 @@ nn = ConvNeuralNetwork(
         (fcl2, activation4)
     ],
     loss_fn=loss_fn,
-    epochs=10,
-    lr=0.01
+    epochs=100,
+    lr=0.001
 )
 
 nn.train(X, y_one_hot)
+
+plt.imshow(X[0].reshape(28, 28), cmap='gray')
+prediction = nn.predict(X[0])
+
 # %%

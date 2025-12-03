@@ -41,7 +41,8 @@ class ReluActivation:
         return self.output
     
     def backward(self, grad_output: float):
-        return grad_output * (self.inputs > 0)
+        grad_output[self.inputs <= 0] = 0
+        return grad_output
     
 class BCELoss:
     def calculate_fwd(self, predictions: npt.NDArray[np.float64], actuals: npt.NDArray[np.float64]) -> float:
