@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.datasets import load_iris, load_digits
 import numpy.typing as npt
-from typing import List, Tuple, Callable, Any
+from typing import List, Tuple, Any
 
 iris = load_iris()
 X = np.array(iris.data)
